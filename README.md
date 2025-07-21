@@ -1,1 +1,2 @@
-# asistente-estudio-ia-spacy
+# 🧠 Asistente de Estudio IA (con spaCy)
+[... contenido completo del README aquí ...]
