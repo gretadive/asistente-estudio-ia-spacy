@@ -1,6 +1,19 @@
+import streamlit as st
+import fitz  # PyMuPDF
 import spacy
+import os
+import csv
+from datetime import datetime
 import subprocess
+from collections import Counter
 
+# ------------------ Configuración ------------------
+st.set_page_config(page_title="Asistente de Estudio IA", page_icon="📘")
+st.title("📘 Asistente de Estudio con IA")
+
+os.makedirs("resultados", exist_ok=True)
+
+# ------------------ spaCy automático ------------------
 @st.cache_resource
 def cargar_spacy():
     try:
@@ -11,19 +24,11 @@ def cargar_spacy():
 
 nlp = cargar_spacy()
 
-
-
-
-# ------------------- Configuración Inicial -------------------
-st.set_page_config(page_title="Asistente de Estudio IA", page_icon="📘")
-st.title("📘 Asistente de Estudio con IA")
-
-os.makedirs("resultados", exist_ok=True)
-
+# ------------------ Entrada ------------------
 nombre_estudiante = st.text_input("👤 Ingresa tu nombre:")
 pdf_file = st.file_uploader("📎 Sube tu archivo PDF", type=["pdf"])
 
-# ------------------- Funciones -------------------
+# ------------------ Funciones ------------------
 def extraer_texto_pdf(file):
     texto = ""
     with fitz.open(stream=file.read(), filetype="pdf") as doc:
@@ -31,89 +36,108 @@ def extraer_texto_pdf(file):
             texto += pagina.get_text()
     return texto
 
-import spacy
-from collections import Counter
-
-# Cargar modelo spaCy en español
-nlp = spacy.load("es_core_news_sm")
-
-
-def detectar_tema(texto):
-    texto = texto.lower()
+def generar_resumen(texto, num_oraciones=5):
     doc = nlp(texto)
+    oraciones = list(doc.sents)
+    palabras = [token.text.lower() for token in doc if token.is_alpha and not token.is_stop]
+    frecuencias = Counter(palabras)
 
-    # Unir palabras clave encontradas
-    tokens = [token.text for token in doc]
-    texto_procesado = " ".join(tokens)
+    puntuaciones = {}
+    for sent in oraciones:
+        score = sum(frecuencias.get(token.text.lower(), 0) for token in sent if token.is_alpha)
+        puntuaciones[sent] = score
 
-    conteo = {}
+    oraciones_resumen = sorted(puntuaciones, key=puntuaciones.get, reverse=True)[:num_oraciones]
+    return " ".join([str(oracion) for oracion in oraciones_resumen])
 
-    for tema, palabras in palabras_clave.items():
-        count = sum(texto_procesado.count(p.lower()) for p in palabras)
-        conteo[tema] = count
+def generar_flashcards(texto, num_tarjetas=5):
+    doc = nlp(texto)
+    flashcards = []
+    for sent in doc.sents:
+        if ":" in sent.text:
+            partes = sent.text.split(":")
+            if len(partes) >= 2:
+                concepto = partes[0].strip()
+                definicion = partes[1].strip()
+                flashcards.append({"concepto": concepto, "definicion": definicion})
+        if len(flashcards) >= num_tarjetas:
+            break
+    return flashcards
 
-    # Seleccionamos el tema con más coincidencias
-    tema_detectado = max(conteo, key=conteo.get)
+def generar_preguntas(texto, num_preguntas=5):
+    doc = nlp(texto)
+    preguntas = []
+    for sent in doc.sents:
+        if len(sent) > 25 and len(preguntas) < num_preguntas:
+            oracion = sent.text.strip()
+            palabras = [token.text for token in sent if token.pos_ == "NOUN" or token.pos_ == "PROPN"]
+            if palabras:
+                respuesta = palabras[0]
+                pregunta = oracion.replace(respuesta, "______", 1)
+                distractores = ["Velocidad", "Tiempo", "Fuerza", "Energía"]
+                opciones = [respuesta] + [d for d in distractores if d != respuesta]
+                opciones = opciones[:4]  # máximo 4 opciones
+                preguntas.append({
+                    "pregunta": pregunta,
+                    "opciones": sorted(opciones),
+                    "respuesta": respuesta
+                })
+    return preguntas
 
-    if conteo[tema_detectado] > 0:
-        return tema_detectado
-    else:
-        return None
-
-
-def guardar_resultado(nombre, tema, puntaje, total):
+def guardar_resultado(nombre, puntaje, total):
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    fila = [nombre, puntaje, total, fecha]
     with open("resultados/resultados.csv", "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([nombre, tema, puntaje, total, fecha])
+        writer.writerow(fila)
 
-# ------------------- Estado -------------------
-for key in ["mostrar_preguntas", "indice", "puntaje", "respondido", "tema"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
+# ------------------ Estado ------------------
+for k in ["mostrar", "indice", "puntaje", "respondido", "preguntas"]:
+    if k not in st.session_state:
+        st.session_state[k] = None
 
-# ------------------- Procesamiento PDF -------------------
+# ------------------ Procesamiento ------------------
 if pdf_file and nombre_estudiante.strip():
     texto = extraer_texto_pdf(pdf_file)
-    tema = detectar_tema(texto)
 
-    if tema:
-        st.success(f"✅ Tema detectado: {tema}")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("📄 Ver Resumen"):
+            st.subheader("📄 Resumen")
+            st.write(generar_resumen(texto))
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("📄 Ver Resumen"):
-                st.markdown(temas[tema]["resumen"])
-
-        with col2:
-            if st.button("💡 Ver Flashcards"):
-                for fc in temas[tema]["flashcards"]:
+    with col2:
+        if st.button("💡 Ver Flashcards"):
+            st.subheader("💡 Flashcards")
+            tarjetas = generar_flashcards(texto)
+            if tarjetas:
+                for fc in tarjetas:
                     with st.expander(fc["concepto"]):
                         st.write(fc["definicion"])
+            else:
+                st.info("No se detectaron flashcards automáticamente.")
 
-        with col3:
-            if st.button("❓ Empezar Preguntas"):
-                st.session_state["mostrar_preguntas"] = True
-                st.session_state["indice"] = 0
-                st.session_state["puntaje"] = 0
-                st.session_state["respondido"] = False
-                st.session_state["tema"] = tema
-    else:
-        st.warning("⚠ No se pudo detectar el tema del PDF.")
+    with col3:
+        if st.button("❓ Empezar Preguntas"):
+            st.session_state["mostrar"] = True
+            st.session_state["preguntas"] = generar_preguntas(texto)
+            st.session_state["indice"] = 0
+            st.session_state["puntaje"] = 0
+            st.session_state["respondido"] = False
 
-# ------------------- Preguntas -------------------
-if st.session_state["mostrar_preguntas"]:
-    preguntas = temas[st.session_state["tema"]]["preguntas"]
+# ------------------ Preguntas ------------------
+if st.session_state["mostrar"]:
+    preguntas = st.session_state["preguntas"]
     i = st.session_state["indice"]
 
-    if i < len(preguntas):
+    if preguntas and i < len(preguntas):
         p = preguntas[i]
         st.markdown(f"### Pregunta {i+1}: {p['pregunta']}")
-        respuesta = st.radio("Selecciona una opción:", p["opciones"], key=f"preg{i}")
+        seleccion = st.radio("Selecciona una opción:", p["opciones"], key=f"preg{i}")
 
         if not st.session_state["respondido"]:
             if st.button("Responder"):
-                if respuesta == p["respuesta"]:
+                if seleccion == p["respuesta"]:
                     st.success("✅ ¡Correcto!")
                     st.session_state["puntaje"] += 1
                 else:
@@ -124,13 +148,17 @@ if st.session_state["mostrar_preguntas"]:
                 st.session_state["indice"] += 1
                 st.session_state["respondido"] = False
                 st.rerun()
-    else:
+
+    elif preguntas:
         total = len(preguntas)
         puntaje = st.session_state["puntaje"]
-        st.success(f"🎉 Puntaje final: **{puntaje} de {total}**")
-        guardar_resultado(nombre_estudiante.strip(), st.session_state["tema"], puntaje, total)
+        st.success(f"🎉 Has terminado. Tu puntaje: **{puntaje} de {total}**")
+        guardar_resultado(nombre_estudiante.strip(), puntaje, total)
 
         if st.button("🔁 Volver a intentar"):
-            for k in ["mostrar_preguntas", "indice", "puntaje", "respondido", "tema"]:
+            for k in ["mostrar", "indice", "puntaje", "respondido", "preguntas"]:
                 st.session_state[k] = None
             st.rerun()
+
+
+       
