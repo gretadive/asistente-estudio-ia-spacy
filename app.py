@@ -12,65 +12,7 @@ def cargar_spacy():
 nlp = cargar_spacy()
 
 
-# ------------------- Diccionario de temas -------------------
-temas = {
-    "MRU": {
-        "resumen": """
-        - Movimiento con velocidad constante.
-        - Aceleración igual a cero.
-        - Fórmula: x(t) = x₀ + vt.
-        """,
-        "flashcards": [
-            {"concepto": "Velocidad constante", "definicion": "La velocidad no cambia con el tiempo."},
-            {"concepto": "Aceleración nula", "definicion": "No hay cambio en la velocidad del cuerpo."}
-        ],
-        "preguntas": [
-            {
-                "pregunta": "¿Qué característica tiene el MRU?",
-                "opciones": ["Aceleración constante", "Velocidad constante", "Movimiento circular", "Aceleración variable"],
-                "respuesta": "Velocidad constante"
-            },
-            {
-                "pregunta": "¿Cuál es la aceleración en MRU?",
-                "opciones": ["9.8 m/s²", "0 m/s²", "10 m/s²", "Depende de la masa"],
-                "respuesta": "0 m/s²"
-            }
-        ]
-    },
-    "MRUV": {
-        "resumen": """
-        - Movimiento con aceleración constante.
-        - Fórmulas: v = v₀ + at, x = x₀ + v₀t + ½at².
-        """,
-        "flashcards": [
-            {"concepto": "Aceleración constante", "definicion": "El cambio de velocidad por unidad de tiempo es constante."},
-            {"concepto": "Velocidad inicial", "definicion": "La velocidad al comenzar el movimiento."}
-        ],
-        "preguntas": [
-            {
-                "pregunta": "¿Qué representa la 'a' en MRUV?",
-                "opciones": ["Área", "Aceleración", "Altura", "Amplitud"],
-                "respuesta": "Aceleración"
-            }
-        ]
-    },
-    "Caída Libre": {
-        "resumen": """
-        - Movimiento vertical bajo gravedad.
-        - Aceleración constante: g = 9.8 m/s².
-        """,
-        "flashcards": [
-            {"concepto": "Gravedad", "definicion": "Fuerza que atrae objetos hacia el centro de la Tierra."}
-        ],
-        "preguntas": [
-            {
-                "pregunta": "¿Cuál es el valor de la gravedad?",
-                "opciones": ["10 m/s²", "9.8 m/s²", "0 m/s²", "1 g"],
-                "respuesta": "9.8 m/s²"
-            }
-        ]
-    }
-}
+
 
 # ------------------- Configuración Inicial -------------------
 st.set_page_config(page_title="Asistente de Estudio IA", page_icon="📘")
@@ -95,12 +37,6 @@ from collections import Counter
 # Cargar modelo spaCy en español
 nlp = spacy.load("es_core_news_sm")
 
-# Palabras clave por tema
-palabras_clave = {
-    "MRU": ["velocidad constante", "aceleración cero", "x(t) = x₀ + vt", "mru"],
-    "MRUV": ["aceleración constante", "v = v₀ + at", "x = x₀ + v₀t + ½at²", "mruv"],
-    "Caída Libre": ["gravedad", "9.8", "v = gt", "y = ½gt²", "caída libre"]
-}
 
 def detectar_tema(texto):
     texto = texto.lower()
