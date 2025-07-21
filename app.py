@@ -89,17 +89,41 @@ def extraer_texto_pdf(file):
             texto += pagina.get_text()
     return texto
 
+import spacy
+from collections import Counter
+
+# Cargar modelo spaCy en español
+nlp = spacy.load("es_core_news_sm")
+
+# Palabras clave por tema
+palabras_clave = {
+    "MRU": ["velocidad constante", "aceleración cero", "x(t) = x₀ + vt", "mru"],
+    "MRUV": ["aceleración constante", "v = v₀ + at", "x = x₀ + v₀t + ½at²", "mruv"],
+    "Caída Libre": ["gravedad", "9.8", "v = gt", "y = ½gt²", "caída libre"]
+}
+
 def detectar_tema(texto):
-    doc = nlp(texto.lower())
-    lemmas = [token.lemma_ for token in doc if not token.is_stop and token.is_alpha]
-    claves = set(lemmas)
-    if {"mru", "velocidad", "constante"}.issubset(claves):
-        return "MRU"
-    elif {"mruv", "aceleración", "constante"}.issubset(claves):
-        return "MRUV"
-    elif {"gravedad", "caída", "libre"}.intersection(claves) or "9.8" in texto:
-        return "Caída Libre"
-    return None
+    texto = texto.lower()
+    doc = nlp(texto)
+
+    # Unir palabras clave encontradas
+    tokens = [token.text for token in doc]
+    texto_procesado = " ".join(tokens)
+
+    conteo = {}
+
+    for tema, palabras in palabras_clave.items():
+        count = sum(texto_procesado.count(p.lower()) for p in palabras)
+        conteo[tema] = count
+
+    # Seleccionamos el tema con más coincidencias
+    tema_detectado = max(conteo, key=conteo.get)
+
+    if conteo[tema_detectado] > 0:
+        return tema_detectado
+    else:
+        return None
+
 
 def guardar_resultado(nombre, tema, puntaje, total):
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
