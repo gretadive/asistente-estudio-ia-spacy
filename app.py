@@ -16,11 +16,8 @@ os.makedirs("resultados", exist_ok=True)
 # ------------------ spaCy automático ------------------
 @st.cache_resource
 def cargar_spacy():
-    try:
-        return spacy.load("es_core_news_sm")
-    except:
-        subprocess.run(["python", "-m", "spacy", "download", "es_core_news_sm"])
-        return spacy.load("es_core_news_sm")
+    return spacy.load("es_core_news_sm")
+
 
 nlp = cargar_spacy()
 
