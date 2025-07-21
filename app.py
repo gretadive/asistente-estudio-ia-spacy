@@ -1,16 +1,16 @@
-import streamlit as st
-import fitz  # PyMuPDF
-import csv
-import os
-from datetime import datetime
 import spacy
+import subprocess
 
-# ------------------- Cargar spaCy -------------------
 @st.cache_resource
 def cargar_spacy():
-    return spacy.load("es_core_news_sm")
+    try:
+        return spacy.load("es_core_news_sm")
+    except:
+        subprocess.run(["python", "-m", "spacy", "download", "es_core_news_sm"])
+        return spacy.load("es_core_news_sm")
 
 nlp = cargar_spacy()
+
 
 # ------------------- Diccionario de temas -------------------
 temas = {
