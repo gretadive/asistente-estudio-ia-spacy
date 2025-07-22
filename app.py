@@ -1,161 +1,98 @@
 import streamlit as st
 import fitz  # PyMuPDF
-import spacy
+import io
+import base64
 import os
-import csv
 from datetime import datetime
-import subprocess
-from collections import Counter
 
-# ------------------ Configuración ------------------
+# NLP
+import spacy
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lsa import LsaSummarizer
+from transformers import pipeline
+
+# Cargar modelo de spaCy español
+nlp = spacy.load("es_core_news_md")
+
+# Cargar pipeline de generación de preguntas
+qg_pipeline = pipeline("text2text-generation", model="iarfmoose/t5-base-question-generator")
+
+# Configuración inicial
 st.set_page_config(page_title="Asistente de Estudio IA", page_icon="📘")
-st.title("📘 Asistente de Estudio con IA")
-
+st.title("📘 Asistente de Estudio con IA Automático")
 os.makedirs("resultados", exist_ok=True)
 
-# ------------------ spaCy automático ------------------
-@st.cache_resource
-def cargar_spacy():
-    return spacy.load("es_core_news_sm")
+# Entrada del usuario
+nombre = st.text_input("👤 Ingresa tu nombre:")
+pdf_file = st.file_uploader("📎 Sube tu archivo PDF aquí", type=["pdf"])
 
-
-nlp = cargar_spacy()
-
-# ------------------ Entrada ------------------
-nombre_estudiante = st.text_input("👤 Ingresa tu nombre:")
-pdf_file = st.file_uploader("📎 Sube tu archivo PDF", type=["pdf"])
-
-# ------------------ Funciones ------------------
+# Funciones
 def extraer_texto_pdf(file):
     texto = ""
     with fitz.open(stream=file.read(), filetype="pdf") as doc:
-        for pagina in doc:
-            texto += pagina.get_text()
+        for page in doc:
+            texto += page.get_text()
     return texto
 
-def generar_resumen(texto, num_oraciones=5):
+def detectar_temas_spacy(texto):
     doc = nlp(texto)
-    oraciones = list(doc.sents)
-    palabras = [token.text.lower() for token in doc if token.is_alpha and not token.is_stop]
-    frecuencias = Counter(palabras)
+    temas = [ent.text for ent in doc.ents if ent.label_ in ["MISC", "ORG", "EVENT", "PRODUCT", "WORK_OF_ART"]]
+    return list(set(temas))[:5]
 
-    puntuaciones = {}
-    for sent in oraciones:
-        score = sum(frecuencias.get(token.text.lower(), 0) for token in sent if token.is_alpha)
-        puntuaciones[sent] = score
+def resumir_sumy(texto, n=5):
+    parser = PlaintextParser.from_string(texto, Tokenizer("spanish"))
+    resumen = LsaSummarizer()(parser.document, n)
+    return "\n".join(str(oracion) for oracion in resumen)
 
-    oraciones_resumen = sorted(puntuaciones, key=puntuaciones.get, reverse=True)[:num_oraciones]
-    return " ".join([str(oracion) for oracion in oraciones_resumen])
+def generar_preguntas(texto):
+    chunks = texto.split(".")[:5]
+    prompt = " ".join(chunks)
+    preguntas_generadas = qg_pipeline(f"generate questions: {prompt}")
+    return [p['generated_text'] for p in preguntas_generadas]
 
-def generar_flashcards(texto, num_tarjetas=5):
-    doc = nlp(texto)
-    flashcards = []
-    for sent in doc.sents:
-        if ":" in sent.text:
-            partes = sent.text.split(":")
-            if len(partes) >= 2:
-                concepto = partes[0].strip()
-                definicion = partes[1].strip()
-                flashcards.append({"concepto": concepto, "definicion": definicion})
-        if len(flashcards) >= num_tarjetas:
-            break
-    return flashcards
-
-def generar_preguntas(texto, num_preguntas=5):
-    doc = nlp(texto)
-    preguntas = []
-    for sent in doc.sents:
-        if len(sent) > 25 and len(preguntas) < num_preguntas:
-            oracion = sent.text.strip()
-            palabras = [token.text for token in sent if token.pos_ == "NOUN" or token.pos_ == "PROPN"]
-            if palabras:
-                respuesta = palabras[0]
-                pregunta = oracion.replace(respuesta, "______", 1)
-                distractores = ["Velocidad", "Tiempo", "Fuerza", "Energía"]
-                opciones = [respuesta] + [d for d in distractores if d != respuesta]
-                opciones = opciones[:4]  # máximo 4 opciones
-                preguntas.append({
-                    "pregunta": pregunta,
-                    "opciones": sorted(opciones),
-                    "respuesta": respuesta
-                })
-    return preguntas
-
-def guardar_resultado(nombre, puntaje, total):
+def guardar_resultado(nombre, temas, resumen, preguntas):
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    fila = [nombre, puntaje, total, fecha]
-    with open("resultados/resultados.csv", "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(fila)
+    nombre_archivo = f"resultado_{nombre.strip().replace(' ', '_')}.txt"
+    ruta = os.path.join("resultados", nombre_archivo)
+    with open(ruta, "w", encoding="utf-8") as f:
+        f.write(f"👤 Nombre: {nombre}\n")
+        f.write(f"📅 Fecha: {fecha}\n")
+        f.write(f"🔍 Temas detectados: {', '.join(temas)}\n\n")
+        f.write("📄 Resumen:\n")
+        f.write(resumen + "\n\n")
+        f.write("❓ Preguntas generadas:\n")
+        for i, preg in enumerate(preguntas, 1):
+            f.write(f"{i}. {preg}\n")
+    return ruta
 
-# ------------------ Estado ------------------
-for k in ["mostrar", "indice", "puntaje", "respondido", "preguntas"]:
-    if k not in st.session_state:
-        st.session_state[k] = None
-
-# ------------------ Procesamiento ------------------
-if pdf_file and nombre_estudiante.strip():
+# Procesamiento principal
+if pdf_file and nombre.strip():
     texto = extraer_texto_pdf(pdf_file)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("📄 Ver Resumen"):
-            st.subheader("📄 Resumen")
-            st.write(generar_resumen(texto))
+    with st.spinner("Analizando contenido con IA..."):
+        temas_detectados = detectar_temas_spacy(texto)
+        resumen = resumir_sumy(texto)
+        preguntas = generar_preguntas(texto)
 
-    with col2:
-        if st.button("💡 Ver Flashcards"):
-            st.subheader("💡 Flashcards")
-            tarjetas = generar_flashcards(texto)
-            if tarjetas:
-                for fc in tarjetas:
-                    with st.expander(fc["concepto"]):
-                        st.write(fc["definicion"])
-            else:
-                st.info("No se detectaron flashcards automáticamente.")
+    st.success("✅ Análisis completado")
 
-    with col3:
-        if st.button("❓ Empezar Preguntas"):
-            st.session_state["mostrar"] = True
-            st.session_state["preguntas"] = generar_preguntas(texto)
-            st.session_state["indice"] = 0
-            st.session_state["puntaje"] = 0
-            st.session_state["respondido"] = False
+    if temas_detectados:
+        st.subheader("🔍 Temas detectados")
+        st.markdown(", ".join(temas_detectados))
 
-# ------------------ Preguntas ------------------
-if st.session_state["mostrar"]:
-    preguntas = st.session_state["preguntas"]
-    i = st.session_state["indice"]
+    st.subheader("📄 Resumen generado automáticamente")
+    st.markdown(resumen)
 
-    if preguntas and i < len(preguntas):
-        p = preguntas[i]
-        st.markdown(f"### Pregunta {i+1}: {p['pregunta']}")
-        seleccion = st.radio("Selecciona una opción:", p["opciones"], key=f"preg{i}")
+    st.subheader("❓ Preguntas generadas automáticamente")
+    for i, q in enumerate(preguntas, 1):
+        st.markdown(f"**{i}.** {q}")
 
-        if not st.session_state["respondido"]:
-            if st.button("Responder"):
-                if seleccion == p["respuesta"]:
-                    st.success("✅ ¡Correcto!")
-                    st.session_state["puntaje"] += 1
-                else:
-                    st.error(f"❌ Incorrecto. Respuesta correcta: {p['respuesta']}")
-                st.session_state["respondido"] = True
-        else:
-            if st.button("➡️ Siguiente"):
-                st.session_state["indice"] += 1
-                st.session_state["respondido"] = False
-                st.rerun()
+    # Guardar y preparar descarga
+    ruta_txt = guardar_resultado(nombre.strip(), temas_detectados, resumen, preguntas)
+    with open(ruta_txt, "r", encoding="utf-8") as f:
+        contenido = f.read()
+    b64 = base64.b64encode(contenido.encode()).decode()
+    href = f'<a href="data:file/txt;base64,{b64}" download="{os.path.basename(ruta_txt)}">📥 Descargar resultado</a>'
+    st.markdown(href, unsafe_allow_html=True)
 
-    elif preguntas:
-        total = len(preguntas)
-        puntaje = st.session_state["puntaje"]
-        st.success(f"🎉 Has terminado. Tu puntaje: **{puntaje} de {total}**")
-        guardar_resultado(nombre_estudiante.strip(), puntaje, total)
-
-        if st.button("🔁 Volver a intentar"):
-            for k in ["mostrar", "indice", "puntaje", "respondido", "preguntas"]:
-                st.session_state[k] = None
-            st.rerun()
-
-
-       
