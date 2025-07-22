@@ -5,4 +5,4 @@ sumy
 transformers
 torch
 sentencepiece
-python -m spacy download es_core_news_md
+
