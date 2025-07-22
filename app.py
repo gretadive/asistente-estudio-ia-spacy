@@ -7,6 +7,13 @@ from datetime import datetime
 
 # NLP
 import spacy
+try:
+    nlp = spacy.load("es_core_news_md")
+except:
+    from spacy.cli import download
+    download("es_core_news_md")
+    nlp = spacy.load("es_core_news_md")
+
 from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.lsa import LsaSummarizer
